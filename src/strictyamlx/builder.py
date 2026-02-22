@@ -10,11 +10,13 @@ class ValidatorBuilder:
         self,
         control_validator: Validator,
         case_validator: Validator,
+        overlay_validators: list[Validator] | None = None,
         control_source: tuple[str] | str | None = None,
     ):
         self.control_source = control_source
         self.control_validator = control_validator
         self.case_validator = case_validator
+        self.overlay_validators = overlay_validators or []
         self.validator = self._build()
 
     def merge_recursive(self, control_validator, case_validator):
@@ -65,14 +67,23 @@ class ValidatorBuilder:
                 control_validator = map_layer
 
         case_validator = copy.deepcopy(ensure_validator_dict(self.case_validator))
+        overlay_validators = [
+            copy.deepcopy(ensure_validator_dict(overlay_validator))
+            for overlay_validator in self.overlay_validators
+        ]
 
         if hasattr(case_validator, 'control') and hasattr(case_validator.control, '_validator'):
-            case_validator.control._validator = ValidatorBuilder(
-                control_validator, case_validator.control._validator
-            ).validator
+            nested_validator = copy.deepcopy(ensure_validator_dict(case_validator.control._validator))
+            for overlay_validator in overlay_validators:
+                self.merge_recursive(overlay_validator, nested_validator)
+            self.merge_recursive(control_validator, nested_validator)
+            case_validator.control._validator = self.rebuild_validator_recursive(nested_validator)
             return case_validator
 
-        self.merge_recursive(control_validator, case_validator)
-        final_validator = self.rebuild_validator_recursive(case_validator)
+        result_validator = case_validator
+        for overlay_validator in overlay_validators:
+            self.merge_recursive(overlay_validator, result_validator)
+        self.merge_recursive(control_validator, result_validator)
+        final_validator = self.rebuild_validator_recursive(result_validator)
 
         return final_validator

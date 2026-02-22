@@ -1,9 +1,17 @@
-import pytest
-from strictyaml import Map, Str, Int, Seq, Optional, load, as_document
 from strictyaml.exceptions import YAMLSerializationError, YAMLValidationError
+import pytest
 
-from strictyamlx import ForwardRef
-from strictyamlx.utils import unpack
+from strictyamlx import (
+    ForwardRef,
+    Int,
+    Map,
+    Optional,
+    Seq,
+    Str,
+    as_document,
+    load,
+    unpack,
+)
 
 def test_forward_ref_init():
     fref = ForwardRef()

@@ -1,8 +1,19 @@
 import pytest
-from strictyaml import Map, MapPattern, Str, Int, Seq, load, as_document
 from strictyaml.exceptions import YAMLSerializationError, YAMLValidationError
 
-from strictyamlx import Control, Case, DMap, ForwardRef
+from strictyamlx import (
+    Case,
+    Control,
+    DMap,
+    ForwardRef,
+    Int,
+    Map,
+    MapPattern,
+    Seq,
+    Str,
+    as_document,
+    load,
+)
 
 def test_dmap_to_yaml_success_first_case():
     ctrl = Control(Map({"type": Str()}))

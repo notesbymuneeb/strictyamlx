@@ -1,6 +1,6 @@
 import pytest
-from strictyaml import Map, Str, Int
-from strictyamlx.builder import ValidatorBuilder
+
+from strictyamlx import Int, Map, Str, ValidatorBuilder
 
 def test_builder_simple_merge():
     ctrl = Map({"type": Str()})

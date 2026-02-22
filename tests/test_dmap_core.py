@@ -1,8 +1,7 @@
 import pytest
-from strictyaml import Map, Str, Int, load
 from strictyaml.exceptions import YAMLSerializationError, YAMLValidationError
 
-from strictyamlx import Control, Case, DMap
+from strictyamlx import Case, Control, DMap, Int, Map, Str, load
 
 def test_dmap_init_valid():
     ctrl = Control(Map({"type": Str()}))

@@ -26,7 +26,7 @@ class Control:
         from .utils import unpack
         validator = unpack(validator)
         projected_chunk = {}
-        
+
         if hasattr(validator, '_validator_dict'):
             keys = validator._validator_dict.items()
         elif hasattr(validator, '_validator') and isinstance(validator._validator, dict):
@@ -52,6 +52,8 @@ class Control:
         return CommentedMap(projected_chunk)
 
     def validate(self, chunk):
+        from .utils import unpack
+
         if self.source and self.source != "":
             if isinstance(self.source, str):
                 chunk_pointer = chunk.contents[self.source]
@@ -61,5 +63,16 @@ class Control:
                 )
         else:
             chunk_pointer = chunk.contents
-        source_chunk = YAMLChunk(self.projection(chunk_pointer, self._validator))
+        unpacked_validator = unpack(self._validator)
+        is_mapping_validator = (
+            hasattr(unpacked_validator, "_validator_dict")
+            or (
+                hasattr(unpacked_validator, "_validator")
+                and isinstance(unpacked_validator._validator, dict)
+            )
+        )
+        if is_mapping_validator:
+            source_chunk = YAMLChunk(self.projection(chunk_pointer, self._validator))
+        else:
+            source_chunk = YAMLChunk(chunk_pointer)
         self.validated = self._validator(source_chunk)

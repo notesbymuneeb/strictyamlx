@@ -1,8 +1,6 @@
 import pytest
-from strictyaml import Map, Str
 
-from strictyamlx import Block, Case
-from strictyamlx.blocks import Overlay
+from strictyamlx import Block, Case, Map, Overlay, Str
 
 def test_block_init():
     bl = Block(when=lambda r,c: True, schema=Map({"a": Str()}))
