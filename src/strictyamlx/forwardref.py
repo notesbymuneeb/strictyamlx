@@ -19,12 +19,14 @@ class ForwardRef(ForwardRefValidator):
         self._should_be_validator(validator)
         self._validator = validator
 
-    def validate(self, chunk):
+    def __call__(self, chunk):
         if self._validator is None:
             raise YAMLSerializationError("ForwardRef was used before it was set")
-        self._validator(chunk)
+        return self._validator(chunk)
 
     def __repr__(self):
+        if self._validator is None:
+            return "{0}()".format(self.__class__.__name__)
         if not self.has_expanded:
             self.has_expanded = True
             return "{0}".format(repr(self._validator))

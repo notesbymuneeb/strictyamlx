@@ -1,4 +1,5 @@
-from strictyaml.validators import Validator, MapValidator
+from strictyaml import Validator
+from strictyaml.validators import MapValidator
 from strictyaml.yamllocation import YAMLChunk
 from functools import reduce
 from strictyaml.ruamel.comments import CommentedMap
@@ -15,18 +16,39 @@ class Control:
             self._validator, Validator
         ), "validator must be of type Validator"
 
+    def __repr__(self):
+        return "Control({0}{1})".format(
+            repr(self._validator),
+            ", source={0}".format(repr(self.source)) if self.source else "",
+        )
+
     def projection(self, chunk, validator):
+        from .utils import unpack
+        validator = unpack(validator)
         projected_chunk = {}
-        for key, val in validator._validator_dict.items():
+        
+        if hasattr(validator, '_validator_dict'):
+            keys = validator._validator_dict.items()
+        elif hasattr(validator, '_validator') and isinstance(validator._validator, dict):
+            # for when _validator_dict isn't explicitly built but _validator is a dict
+            keys = [
+                (k.key if hasattr(k, 'key') else k, v)
+                for k, v in validator._validator.items()
+            ]
+        else:
+            from strictyaml.exceptions import InvalidValidatorError
+            raise InvalidValidatorError("Control validator must be a Map with specific keys")
+
+        for key, val in keys:
+            val = unpack(val)
             if key in chunk:
                 if isinstance(val, MapValidator):
                     projected_chunk[key] = self.projection(
-                        chunk[key], validator._validator[key]
+                        chunk[key], val
                     )
                 else:
                     projected_chunk[key] = chunk[key]
-            else:
-                raise YAMLSerializationError(f"Control key: {key} not present in chunk")
+                    
         return CommentedMap(projected_chunk)
 
     def validate(self, chunk):
