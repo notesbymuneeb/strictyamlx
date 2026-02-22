@@ -106,6 +106,90 @@ schema = DMap(
 )
 ```
 
+### Overlay Blocks
+`Overlay` blocks allow you to conditionally apply schema fragments on top of your base `Case` schema. Unlike `Case` blocks (where only one can match), multiple `Overlay` blocks can be active at the same time.
+
+Overlays are useful for features like debug flags, optional configurations (like TLS or metrics), or environment-specific settings that should only appear when certain conditions are met.
+
+**Precedence:** `Case` > `Overlay` (in order) > `Control`. This means fields in the `Case` schema override overlays, and overlays override the control schema.
+
+```python
+from strictyamlx import Map, Str, Int, Bool, Enum, Optional, Seq, load, Control, Case, DMap, Overlay
+
+schema = DMap(
+    control=Control(
+        validator=Enum(["simple", "advanced"]),
+        source=("meta", "mode"),
+    ),
+    blocks=[
+        # Base Case 1: Simple Mode
+        Case(
+            when=lambda raw, ctrl: ctrl == "simple",
+            schema=Map({
+                "meta": Map({"mode": Enum(["simple"])}),
+                "service": Map({"name": Str(), "port": Int()}),
+            }),
+        ),
+        # Base Case 2: Advanced Mode
+        Case(
+            when=lambda raw, ctrl: ctrl == "advanced",
+            schema=Map({
+                "meta": Map({"mode": Enum(["advanced"])}),
+                "service": Map({"name": Str(), "ports": Seq(Int())}),
+                Optional("workers"): Int(),
+            }),
+        ),
+        # Overlay: Debug (applied if 'debug' is true)
+        Overlay(
+            when=lambda raw, ctrl: raw.get("debug") is True,
+            schema=Map({
+                Optional("debug"): Bool(),
+                Optional("log_level"): Enum(["debug", "info", "warn", "error"]),
+            }),
+        ),
+        # Overlay: TLS (applied if 'tls' key exists)
+        Overlay(
+            when=lambda raw, ctrl: "tls" in raw,
+            schema=Map({
+                "tls": Map({
+                    "enabled": Bool(),
+                    Optional("cert_file"): Str(),
+                    Optional("key_file"): Str(),
+                })
+            }),
+        ),
+    ],
+)
+
+# Example 1: Simple mode with Debug overlay
+yaml_simple_debug = """
+meta:
+  mode: simple
+service:
+  name: api
+  port: 8080
+debug: true
+log_level: debug
+"""
+doc = load(yaml_simple_debug, schema)
+assert doc.data["log_level"] == "debug"
+
+# Example 2: Advanced mode with TLS overlay
+yaml_advanced_tls = """
+meta:
+  mode: advanced
+service:
+  name: api
+  ports: [8080, 8081]
+workers: 4
+tls:
+  enabled: true
+  cert_file: /etc/certs/server.crt
+"""
+doc = load(yaml_advanced_tls, schema)
+assert doc.data["tls"]["enabled"] is True
+```
+
 ### ForwardRef
 `ForwardRef` defines recursive or mutually dependent schemas, letting you use a schema component before it is fully defined.
 
