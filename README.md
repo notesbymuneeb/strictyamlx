@@ -130,10 +130,10 @@ doc = load(yaml_str, tree)
 ```
 
 #### DMaps with ForwardRef
-You can use a `ForwardRef` inside `DMap` case schemas to easily build deep recursive dynamic behavior:
+You can use a `ForwardRef` inside `DMap` case schemas to build recursive dynamic behavior:
 
 ```python
-from strictyamlx import Map, Str, Int, load, Control, Case, DMap, ForwardRef
+from strictyamlx import Map, Str, Int, Optional, load, Control, Case, DMap, ForwardRef
 
 ref = ForwardRef()
 
@@ -142,7 +142,7 @@ schema = DMap(
     [
         Case(
             when=lambda raw, ctrl: ctrl["type"] == "node", 
-            schema=Map({"value": Int(), "child": ref})
+            schema=Map({"value": Int(), Optional("child"): ref})
         ),
         Case(
             when=lambda raw, ctrl: ctrl["type"] == "leaf", 
@@ -151,9 +151,9 @@ schema = DMap(
     ]
 )
 
-# Reference points to the DMap itself, allowing infinite nesting!
+# Reference points to the DMap itself
 ref.set(schema)
-
+```
 yaml_str = """
 type: node
 value: 1

@@ -1,6 +1,6 @@
 [project]
 name = "strictyamlx"
-version = "0.1.0"
+version = "0.1.1"
 description = "An extension of StrictYAML that adds more expressive schema tools for validation."
 authors = [
     {name = "Muneeb ur Rahman",email = "muneebdev1@gmail.com"}
