@@ -153,7 +153,7 @@ schema = DMap(
 
 # Reference points to the DMap itself
 ref.set(schema)
-```
+
 yaml_str = """
 type: node
 value: 1
