@@ -6,7 +6,7 @@ authors = [
     {name = "Muneeb ur Rahman",email = "muneebdev1@gmail.com"}
 ]
 readme = "README.md"
-license = { file = "LICENSE" }
+license = {text = "MIT"}
 requires-python = ">=3.12,<=3.14"
 dependencies = [
     "strictyaml==1.7.3"
