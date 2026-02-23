@@ -6,9 +6,13 @@ from .blocks import Block, Case, Overlay
 from collections.abc import Callable
 from .builder import ValidatorBuilder
 from strictyaml.yamllocation import YAMLChunk
+import inspect
+import threading
 
 
 class DMap(MapValidator):
+    _local = threading.local()
+
     def __init__(
         self,
         control: Control,
@@ -29,17 +33,71 @@ class DMap(MapValidator):
         self.blocks = blocks
         self.constraints = constraints
 
+    def __call__(self, chunk):
+        self.validate(chunk)
+        return self.validated
+
+    @classmethod
+    def get_stack(cls):
+        if not hasattr(cls._local, 'stack'):
+            cls._local.stack = []
+        return cls._local.stack
+
+    @classmethod
+    def get_constraint_state(cls):
+        if not hasattr(cls._local, 'constraint_state'):
+            cls._local.constraint_state = {
+                "active_validations": 0,
+                "pending_constraints": [],
+            }
+        return cls._local.constraint_state
+
+    @classmethod
+    def reset_constraint_state(cls):
+        cls._local.constraint_state = {
+            "active_validations": 0,
+            "pending_constraints": [],
+        }
+
+    @staticmethod
+    def _callback_shape(func):
+        try:
+            sig = inspect.signature(func)
+        except (TypeError, ValueError):
+            # Fall back to legacy behavior when a callable cannot be introspected.
+            return 2, False, False, False
+        params = list(sig.parameters.values())
+        positional_count = sum(
+            1
+            for p in params
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        )
+        has_var_positional = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+        has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params)
+        has_named_parents = any(p.name == "parents" for p in params)
+        return positional_count, has_var_positional, has_var_keyword, has_named_parents
+
     @staticmethod
     def compile_when(when):
         if callable(when):
-            return when
-        return lambda raw, ctrl: bool(when)
+            positional_count, has_var_positional, has_var_keyword, has_named_parents = DMap._callback_shape(when)
+            if positional_count >= 3 or has_var_positional:
+                return lambda raw, ctrl, parents=None: when(raw, ctrl, parents)
+            if has_named_parents or has_var_keyword:
+                return lambda raw, ctrl, parents=None: when(raw, ctrl, parents=parents)
+            return lambda raw, ctrl, parents=None: when(raw, ctrl)
+        return lambda raw, ctrl, parents=None: bool(when)
 
     @staticmethod
     def compile_constraint(when):
         if callable(when):
-            return when
-        return lambda raw, ctrl, val: bool(when)
+            positional_count, has_var_positional, has_var_keyword, has_named_parents = DMap._callback_shape(when)
+            if positional_count >= 4 or has_var_positional:
+                return lambda raw, ctrl, val, parents=None: when(raw, ctrl, val, parents)
+            if has_named_parents or has_var_keyword:
+                return lambda raw, ctrl, val, parents=None: when(raw, ctrl, val, parents=parents)
+            return lambda raw, ctrl, val, parents=None: when(raw, ctrl, val)
+        return lambda raw, ctrl, val, parents=None: bool(when)
 
     @staticmethod
     def normalize_raw(raw):
@@ -56,6 +114,10 @@ class DMap(MapValidator):
         return raw
 
     def validate(self, chunk):
+        constraint_state = DMap.get_constraint_state()
+        is_root_validation = constraint_state["active_validations"] == 0
+        constraint_state["active_validations"] += 1
+        validation_succeeded = False
         chunk.expect_mapping()
         self.control.validate(chunk)
         ctrl = self.control.validated.data
@@ -63,52 +125,115 @@ class DMap(MapValidator):
         control_validator = self.control._validator
         true_case_block = None
         true_overlay_blocks = []
-        # TODO: what if the user doesn't really want a control validator and only selects based on raw
-        for block in self.blocks:
-            if not DMap.compile_when(block.when)(raw, ctrl):
-                continue
-            if isinstance(block, Case):
-                if true_case_block is None:
-                    true_case_block = block
+        
+        stack = DMap.get_stack()
+        parents = list(stack)
+        when_parents = [{"raw": parent["raw"], "ctrl": parent["ctrl"]} for parent in parents]
+        
+        # Push current context for children
+        frame = {'ctrl': ctrl, 'raw': raw, 'val': None, 'parents': parents}
+        stack.append(frame)
+        
+        try:
+            # TODO: what if the user doesn't really want a control validator and only selects based on raw
+            for block in self.blocks:
+                if not DMap.compile_when(block.when)(raw, ctrl, parents=when_parents):
+                    continue
+                if isinstance(block, Case):
+                    if true_case_block is None:
+                        true_case_block = block
+                    else:
+                        chunk.expecting_but_found("when evaluating DMap blocks", "multiple cases were true")
+                elif isinstance(block, Overlay):
+                    true_overlay_blocks.append(block)
                 else:
-                    chunk.expecting_but_found("when evaluating DMap blocks", "multiple cases were true")
-            elif isinstance(block, Overlay):
-                true_overlay_blocks.append(block)
-            else:
-                chunk.expecting_but_found(
-                    "when evaluating DMap blocks",
-                    "unknown block type; expected Case or Overlay",
-                )
+                    chunk.expecting_but_found(
+                        "when evaluating DMap blocks",
+                        "unknown block type; expected Case or Overlay",
+                    )
+    
+            if true_case_block is None:
+                chunk.expecting_but_found("when evaluating DMap blocks", "none of the cases were true")
+    
+            final_validator = ValidatorBuilder(
+                control_validator,
+                true_case_block._validator,
+                [overlay._validator for overlay in true_overlay_blocks],
+                self.control.source,
+            ).validator
+    
+            self.validated = final_validator(chunk)
+            val = self.validated.data
+            frame["val"] = val
 
-        if true_case_block is None:
-            chunk.expecting_but_found("when evaluating DMap blocks", "none of the cases were true")
+            if self.constraints:
+                for constraint in self.constraints:
+                    constraint_state["pending_constraints"].append(
+                        {
+                            "constraint": constraint,
+                            "frame": frame,
+                            "chunk": chunk,
+                            "where": "when evaluating DMap constraints",
+                            "depth": len(frame["parents"]),
+                        }
+                    )
+            if true_case_block.constraints:
+                for constraint in true_case_block.constraints:
+                    constraint_state["pending_constraints"].append(
+                        {
+                            "constraint": constraint,
+                            "frame": frame,
+                            "chunk": chunk,
+                            "where": "when evaluating DMap case constraints",
+                            "depth": len(frame["parents"]),
+                        }
+                    )
+            for overlay in true_overlay_blocks:
+                if overlay.constraints:
+                    for constraint in overlay.constraints:
+                        constraint_state["pending_constraints"].append(
+                            {
+                                "constraint": constraint,
+                                "frame": frame,
+                                "chunk": chunk,
+                                "where": "when evaluating DMap overlay constraints",
+                                "depth": len(frame["parents"]),
+                            }
+                        )
+            validation_succeeded = True
+        finally:
+            stack.pop()
+            constraint_state["active_validations"] -= 1
 
-        final_validator = ValidatorBuilder(
-            control_validator,
-            true_case_block._validator,
-            [overlay._validator for overlay in true_overlay_blocks],
-            self.control.source,
-        ).validator
-
-        self.validated = final_validator(chunk)
-        val = self.validated.data
-
-        if self.constraints:
-            for constraint in self.constraints:
-                if not DMap.compile_constraint(constraint)(raw, ctrl, val):
-                    chunk.expecting_but_found("when evaluating DMap constraints", "constraints not fulfilled")
-        if true_case_block.constraints:
-            for constraint in true_case_block.constraints:
-                if not DMap.compile_constraint(constraint)(raw, ctrl, val):
-                    chunk.expecting_but_found("when evaluating DMap case constraints", "constraints not fulfilled")
-        for overlay in true_overlay_blocks:
-            if overlay.constraints:
-                for constraint in overlay.constraints:
-                    if not DMap.compile_constraint(constraint)(raw, ctrl, val):
-                        chunk.expecting_but_found(
-                            "when evaluating DMap overlay constraints",
+        if is_root_validation and validation_succeeded:
+            try:
+                for pending in sorted(
+                    constraint_state["pending_constraints"],
+                    key=lambda item: item["depth"],
+                ):
+                    parent_frames = pending["frame"]["parents"]
+                    parent_context = [
+                        {
+                            "raw": parent["raw"],
+                            "ctrl": parent["ctrl"],
+                            "val": parent["val"],
+                        }
+                        for parent in parent_frames
+                    ]
+                    if not DMap.compile_constraint(pending["constraint"])(
+                        pending["frame"]["raw"],
+                        pending["frame"]["ctrl"],
+                        pending["frame"]["val"],
+                        parents=parent_context,
+                    ):
+                        pending["chunk"].expecting_but_found(
+                            pending["where"],
                             "constraints not fulfilled",
                         )
+            finally:
+                DMap.reset_constraint_state()
+        elif is_root_validation:
+            DMap.reset_constraint_state()
 
     def to_yaml(self, data):
         self._should_be_mapping(data)
@@ -116,31 +241,39 @@ class DMap(MapValidator):
         ctrl = self.control.validated.data
         raw = DMap.normalize_raw(data)
 
-        true_case_block = None
-        true_overlay_blocks = []
-        for block in self.blocks:
-            if not DMap.compile_when(block.when)(raw, ctrl):
-                continue
-            if isinstance(block, Case):
-                if true_case_block is None:
-                    true_case_block = block
+        stack = DMap.get_stack()
+        parents = list(stack)
+        when_parents = [{"raw": parent["raw"], "ctrl": parent["ctrl"]} for parent in parents]
+        stack.append({'ctrl': ctrl, 'raw': raw})
+
+        try:
+            true_case_block = None
+            true_overlay_blocks = []
+            for block in self.blocks:
+                if not DMap.compile_when(block.when)(raw, ctrl, parents=when_parents):
+                    continue
+                if isinstance(block, Case):
+                    if true_case_block is None:
+                        true_case_block = block
+                    else:
+                        raise YAMLSerializationError("Multiple DMap cases evaluated to true")
+                elif isinstance(block, Overlay):
+                    true_overlay_blocks.append(block)
                 else:
-                    raise YAMLSerializationError("Multiple DMap cases evaluated to true")
-            elif isinstance(block, Overlay):
-                true_overlay_blocks.append(block)
-            else:
-                raise YAMLSerializationError("Unknown DMap block type; expected Case or Overlay")
-
-        if true_case_block is None:
-            raise YAMLSerializationError("None of the DMap cases successfully serialized the data")
-
-        final_validator = ValidatorBuilder(
-            self.control._validator,
-            true_case_block._validator,
-            [overlay._validator for overlay in true_overlay_blocks],
-            self.control.source,
-        ).validator
-        return final_validator.to_yaml(data)
+                    raise YAMLSerializationError("Unknown DMap block type; expected Case or Overlay")
+    
+            if true_case_block is None:
+                raise YAMLSerializationError("None of the DMap cases successfully serialized the data")
+    
+            final_validator = ValidatorBuilder(
+                self.control._validator,
+                true_case_block._validator,
+                [overlay._validator for overlay in true_overlay_blocks],
+                self.control.source,
+            ).validator
+            return final_validator.to_yaml(data)
+        finally:
+            stack.pop()
 
     def __repr__(self):
         return "DMap({0}, {1}{2})".format(

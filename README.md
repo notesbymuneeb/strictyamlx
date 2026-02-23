@@ -83,6 +83,17 @@ Case(
 )
 ```
 
+Constraint callbacks can use:
+- `constraint(raw, ctrl, validated)` — no parent context
+- `constraint(raw, ctrl, validated, parents=None)` — parent-aware
+
+When `parents` is provided to constraints, each item is a dictionary with:
+- `raw`: ancestor raw document
+- `ctrl`: ancestor control projection
+- `val`: ancestor validated value
+
+Constraints are evaluated after schema validation, so parent `val` is available for nested `DMap` constraints.
+
 #### Nesting DMaps
 DMaps can nested to create complex state graphs. A `Case` block can even have another `DMap` as its schema!
 
@@ -103,6 +114,72 @@ schema = DMap(
         Case(when=lambda raw, ctrl: ctrl["kind"] == "complex", schema=inner_schema),
         Case(when=lambda raw, ctrl: ctrl["kind"] == "simple", schema=Map({"value": Str()})),
     ]
+)
+```
+
+#### Parent context in nested `when`
+Nested `when` clauses can inspect ancestor context with an optional `parents` argument:
+
+```python
+schema = DMap(
+    control=Control(Map({"type": Str()})),
+    blocks=[
+        Case(
+            when=lambda raw, ctrl: ctrl["type"] == "parent",
+            schema=Map({
+                "child": DMap(
+                    control=Control(Map({"subtype": Str()})),
+                    blocks=[
+                        Case(
+                            # Access parent control from the immediate parent.
+                            when=lambda raw, ctrl, parents=None: (
+                                parents
+                                and parents[-1]["ctrl"]["type"] == "parent"
+                                and ctrl["subtype"] == "V1"
+                            ),
+                            schema=Map({"v1": Int()}),
+                        )
+                    ],
+                )
+            }),
+        )
+    ],
+)
+```
+
+For `when`, each `parents` item contains:
+- `raw`
+- `ctrl`
+
+#### Parent context in nested constraints
+Nested constraints can also read ancestor validated values:
+
+```python
+def child_constraint(raw, ctrl, val, parents=None):
+    if not parents:
+        return False
+    parent_val = parents[-1]["val"]
+    return parent_val["type"] == "parent" and val["value"] > 0
+
+schema = DMap(
+    control=Control(Map({"type": Str()})),
+    blocks=[
+        Case(
+            when=lambda raw, ctrl: ctrl["type"] == "parent",
+            schema=Map({
+                "child": DMap(
+                    control=Control(Map({"subtype": Str()})),
+                    blocks=[
+                        Case(
+                            when=lambda raw, ctrl: ctrl["subtype"] == "child_type",
+                            schema=Map({"value": Int()}),
+                            constraints=[child_constraint],
+                        )
+                    ],
+                )
+            }),
+        )
+    ],
 )
 ```
 

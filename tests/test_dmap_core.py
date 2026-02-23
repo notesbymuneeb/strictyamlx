@@ -46,13 +46,58 @@ def test_dmap_compile_when():
     compiled_bool = DMap.compile_when(False)
     assert compiled_bool("raw", "ctrl") is False
 
+
+def test_dmap_compile_when_kwargs_backward_compatible():
+    def func_with_kwargs(r, c, **kwargs):
+        return kwargs.get("parents") == [{"ctrl": {"a": 1}, "raw": {"a": 1}, "val": {"a": 1}}]
+
+    compiled = DMap.compile_when(func_with_kwargs)
+    assert (
+        compiled(
+            "raw",
+            "ctrl",
+            parents=[{"ctrl": {"a": 1}, "raw": {"a": 1}, "val": {"a": 1}}],
+        )
+        is True
+    )
+
+
+def test_dmap_compile_when_signature_fallback(monkeypatch):
+    def func(r, c):
+        return r == "raw" and c == "ctrl"
+
+    monkeypatch.setattr("strictyamlx.dmap.inspect.signature", lambda _func: (_ for _ in ()).throw(ValueError("no signature")))
+    compiled = DMap.compile_when(func)
+    assert compiled("raw", "ctrl") is True
+
 def test_dmap_compile_constraint():
     func = lambda r, c, v: True
     compiled = DMap.compile_constraint(func)
     assert compiled("raw", "ctrl", "val") is True
+    assert compiled("raw", "ctrl", "val", parents=[{"raw": {}, "ctrl": {}, "val": {}}]) is True
 
     compiled_bool = DMap.compile_constraint(False)
     assert compiled_bool("raw", "ctrl", "val") is False
+    assert (
+        compiled_bool("raw", "ctrl", "val", parents=[{"raw": {}, "ctrl": {}, "val": {}}])
+        is False
+    )
+
+
+def test_dmap_compile_constraint_kwargs_backward_compatible():
+    def func_with_kwargs(r, c, v, **kwargs):
+        return kwargs.get("parents") == [{"ctrl": {"a": 1}, "raw": {"a": 1}, "val": {"a": 1}}]
+
+    compiled = DMap.compile_constraint(func_with_kwargs)
+    assert (
+        compiled(
+            "raw",
+            "ctrl",
+            "val",
+            parents=[{"ctrl": {"a": 1}, "raw": {"a": 1}, "val": {"a": 1}}],
+        )
+        is True
+    )
 
 def test_dmap_routing_basic():
     ctrl = Control(Map({"type": Str()}))
