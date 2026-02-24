@@ -135,4 +135,4 @@ python-dateutil = ">=2.6.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<=3.14"
-content-hash = "1bb19a1916d60918f7954f843d0730eb082044a28ad8a39a24020c0a7644f8b3"
+content-hash = "b7121f38004a6c344d779338b985f98ac06982b8e653ed8f9925ccd49e2994b4"

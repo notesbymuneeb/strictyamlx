@@ -2,7 +2,7 @@ from strictyaml import Validator
 from strictyaml.validators import MapValidator
 from strictyaml.yamllocation import YAMLChunk
 from functools import reduce
-from strictyaml.ruamel.comments import CommentedMap
+from strictyaml.ruamel.comments import CommentedMap, CommentedSeq
 from strictyaml.exceptions import YAMLSerializationError
 
 
@@ -27,6 +27,17 @@ class Control:
         validator = unpack(validator)
         projected_chunk = {}
 
+        def to_marked_up(value):
+            if isinstance(value, CommentedMap):
+                return CommentedMap({k: to_marked_up(v) for k, v in value.items()})
+            if isinstance(value, dict):
+                return CommentedMap({k: to_marked_up(v) for k, v in value.items()})
+            if isinstance(value, CommentedSeq):
+                return CommentedSeq([to_marked_up(v) for v in value])
+            if isinstance(value, list):
+                return CommentedSeq([to_marked_up(v) for v in value])
+            return value
+
         if hasattr(validator, '_validator_dict'):
             keys = validator._validator_dict.items()
         elif hasattr(validator, '_validator') and isinstance(validator._validator, dict):
@@ -42,12 +53,16 @@ class Control:
         for key, val in keys:
             val = unpack(val)
             if key in chunk:
-                if isinstance(val, MapValidator):
+                is_mapping_with_key_schema = (
+                    hasattr(val, "_validator_dict")
+                    or (hasattr(val, "_validator") and isinstance(val._validator, dict))
+                )
+                if isinstance(val, MapValidator) and is_mapping_with_key_schema:
                     projected_chunk[key] = self.projection(
                         chunk[key], val
                     )
                 else:
-                    projected_chunk[key] = chunk[key]
+                    projected_chunk[key] = to_marked_up(chunk[key])
                     
         return CommentedMap(projected_chunk)
 
@@ -72,7 +87,10 @@ class Control:
             )
         )
         if is_mapping_validator:
-            source_chunk = YAMLChunk(self.projection(chunk_pointer, self._validator))
+            projected = self.projection(chunk_pointer, self._validator)
+            if not isinstance(chunk_pointer, CommentedMap):
+                projected = unpacked_validator.to_yaml(projected)
+            source_chunk = YAMLChunk(projected)
         else:
             source_chunk = YAMLChunk(chunk_pointer)
         self.validated = self._validator(source_chunk)

@@ -118,22 +118,31 @@ class DMap(MapValidator):
         is_root_validation = constraint_state["active_validations"] == 0
         constraint_state["active_validations"] += 1
         validation_succeeded = False
+        stack = DMap.get_stack()
         chunk.expect_mapping()
-        self.control.validate(chunk)
-        ctrl = self.control.validated.data
         raw = DMap.normalize_raw(chunk.whole_document)
+        parents = list(stack)
+        when_parents = [{"raw": parent["raw"], "ctrl": parent["ctrl"]} for parent in parents]
+
+        # Push a provisional frame before control validation so control-nested DMaps
+        # can still inspect parent raw/context (ctrl may be None until resolved).
+        frame = {"ctrl": None, "raw": raw, "val": None, "parents": parents}
+        stack.append(frame)
+        try:
+            self.control.validate(chunk)
+            ctrl = self.control.validated.data
+            frame["ctrl"] = ctrl
+        except Exception:
+            stack.pop()
+            constraint_state["active_validations"] -= 1
+            if is_root_validation:
+                DMap.reset_constraint_state()
+            raise
+
         control_validator = self.control._validator
         true_case_block = None
         true_overlay_blocks = []
-        
-        stack = DMap.get_stack()
-        parents = list(stack)
-        when_parents = [{"raw": parent["raw"], "ctrl": parent["ctrl"]} for parent in parents]
-        
-        # Push current context for children
-        frame = {'ctrl': ctrl, 'raw': raw, 'val': None, 'parents': parents}
-        stack.append(frame)
-        
+
         try:
             # TODO: what if the user doesn't really want a control validator and only selects based on raw
             for block in self.blocks:
@@ -237,14 +246,19 @@ class DMap(MapValidator):
 
     def to_yaml(self, data):
         self._should_be_mapping(data)
-        self.control.validate(YAMLChunk(data))
-        ctrl = self.control.validated.data
-        raw = DMap.normalize_raw(data)
-
         stack = DMap.get_stack()
+        raw = DMap.normalize_raw(data)
         parents = list(stack)
         when_parents = [{"raw": parent["raw"], "ctrl": parent["ctrl"]} for parent in parents]
-        stack.append({'ctrl': ctrl, 'raw': raw})
+        frame = {"ctrl": None, "raw": raw, "val": None, "parents": parents}
+        stack.append(frame)
+        try:
+            self.control.validate(YAMLChunk(data))
+            ctrl = self.control.validated.data
+            frame["ctrl"] = ctrl
+        except Exception:
+            stack.pop()
+            raise
 
         try:
             true_case_block = None

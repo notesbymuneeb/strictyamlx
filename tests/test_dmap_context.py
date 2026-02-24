@@ -213,3 +213,93 @@ def test_when_parent_payload_is_consistent_for_load_and_to_yaml():
 
     # First call comes from load(), second call from to_yaml().
     assert observed == [("ctrl", "raw"), ("ctrl", "raw")]
+
+
+def test_control_nested_dmap_deep_child_gets_parent_raw_and_partial_ctrl():
+    observed = []
+
+    deep_schema = DMap(
+        control=Control(Map({"kind": Str()})),
+        blocks=[
+            Case(
+                when=lambda raw, ctrl, parents=None: (
+                    observed.append(
+                        {
+                            "has_two_parents": bool(parents and len(parents) >= 2),
+                            "root_ctrl": parents[-2]["ctrl"] if parents and len(parents) >= 2 else "missing",
+                            "root_raw_selector": (
+                                parents[-2]["raw"]["meta"]["selector"]
+                                if parents and len(parents) >= 2
+                                else "missing"
+                            ),
+                            "inner_ctrl_selector": (
+                                parents[-1]["ctrl"]["selector"]
+                                if parents and len(parents) >= 1 and parents[-1]["ctrl"] is not None
+                                else "missing"
+                            ),
+                        }
+                    )
+                    or ctrl["kind"] == "leaf"
+                ),
+                schema=Map({"value": Int()}),
+            )
+        ],
+    )
+
+    control_inner = DMap(
+        control=Control(Map({"selector": Str()})),
+        blocks=[
+            Case(
+                when=lambda raw, ctrl: ctrl["selector"] == "inner",
+                schema=Map(
+                    {
+                        "mode": Str(),
+                        "deep": deep_schema,
+                    }
+                ),
+            )
+        ],
+    )
+
+    schema = DMap(
+        control=Control(Map({"meta": control_inner})),
+        blocks=[
+            Case(
+                when=lambda raw, ctrl: observed.append(ctrl["meta"]["mode"]) or ctrl["meta"]["mode"] == "X",
+                schema=Map({"meta": control_inner, "payload": Int()}),
+            )
+        ],
+    )
+
+    yaml_data = """
+    meta:
+      selector: inner
+      mode: X
+      deep:
+        kind: leaf
+        value: 7
+    payload: 1
+    """
+
+    parsed = load(yaml_data, schema)
+    assert parsed["payload"] == 1
+    assert observed[0] == {
+        "has_two_parents": True,
+        "root_ctrl": None,
+        "root_raw_selector": "inner",
+        "inner_ctrl_selector": "inner",
+    }
+    assert observed[1] == "X"
+
+    serialized = schema.to_yaml(
+        {
+            "meta": {
+                "selector": "inner",
+                "mode": "X",
+                "deep": {"kind": "leaf", "value": 7},
+            },
+            "payload": 1,
+        }
+    )
+    assert serialized["meta"]["selector"] == "inner"
+
