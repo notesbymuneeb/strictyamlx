@@ -12,6 +12,10 @@ pip install strictyamlx
 `DMap` allows you to validate YAML where the schema of a map depends on the value of one or more of its keys.
 It evaluates a "control" schema first, and uses its values to determine which `Case` schema applies. The final parsed object safely merges the validated control and case values.
 
+Case matching rules:
+- At most one `Case` can evaluate to `True`.
+- Zero matching `Case` blocks is allowed; in that scenario, `DMap` validates with control + active overlays only.
+
 ```python
 from strictyamlx import Map, Str, Int, load, Control, Case, DMap
 

@@ -1,6 +1,7 @@
 from strictyaml import Validator
 from strictyaml.validators import MapValidator
 from strictyaml.exceptions import YAMLSerializationError, InvalidValidatorError
+from strictyaml import Map
 from .control import Control
 from .blocks import Block, Case, Overlay
 from collections.abc import Callable
@@ -161,12 +162,9 @@ class DMap(MapValidator):
                         "unknown block type; expected Case or Overlay",
                     )
     
-            if true_case_block is None:
-                chunk.expecting_but_found("when evaluating DMap blocks", "none of the cases were true")
-    
             final_validator = ValidatorBuilder(
                 control_validator,
-                true_case_block._validator,
+                true_case_block._validator if true_case_block is not None else Map({}),
                 [overlay._validator for overlay in true_overlay_blocks],
                 self.control.source,
             ).validator
@@ -186,7 +184,7 @@ class DMap(MapValidator):
                             "depth": len(frame["parents"]),
                         }
                     )
-            if true_case_block.constraints:
+            if true_case_block and true_case_block.constraints:
                 for constraint in true_case_block.constraints:
                     constraint_state["pending_constraints"].append(
                         {
@@ -276,12 +274,9 @@ class DMap(MapValidator):
                 else:
                     raise YAMLSerializationError("Unknown DMap block type; expected Case or Overlay")
     
-            if true_case_block is None:
-                raise YAMLSerializationError("None of the DMap cases successfully serialized the data")
-    
             final_validator = ValidatorBuilder(
                 self.control._validator,
-                true_case_block._validator,
+                true_case_block._validator if true_case_block is not None else Map({}),
                 [overlay._validator for overlay in true_overlay_blocks],
                 self.control.source,
             ).validator

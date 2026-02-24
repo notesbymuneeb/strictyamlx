@@ -119,5 +119,5 @@ def test_dmap_routing_no_case():
     ]
     
     schema = DMap(ctrl, blocks)
-    with pytest.raises(YAMLValidationError, match="none of the cases were true"):
-        load("type: Y\ny: hello", schema)
+    doc = load("type: Y", schema)
+    assert doc.data == {"type": "Y"}

@@ -75,7 +75,7 @@ def test_nested_dmap_context_with_parent_fail():
 
     with pytest.raises(Exception) as excinfo:
         load(yaml_data, schema)
-    assert "none of the cases were true" in str(excinfo.value)
+    assert "unexpected key not in schema 'value'" in str(excinfo.value)
 
 
 def test_nested_constraint_has_access_to_parent_val():
