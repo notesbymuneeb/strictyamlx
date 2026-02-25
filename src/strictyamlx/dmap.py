@@ -1,6 +1,6 @@
 from strictyaml import Validator
 from strictyaml.validators import MapValidator
-from strictyaml.exceptions import YAMLSerializationError, InvalidValidatorError
+from strictyaml.exceptions import YAMLSerializationError
 from strictyaml import Map
 from .control import Control
 from .blocks import Block, Case, Overlay
@@ -121,7 +121,7 @@ class DMap(MapValidator):
         validation_succeeded = False
         stack = DMap.get_stack()
         chunk.expect_mapping()
-        raw = DMap.normalize_raw(chunk.whole_document)
+        raw = DMap.normalize_raw(chunk.contents)
         parents = list(stack)
         when_parents = [{"raw": parent["raw"], "ctrl": parent["ctrl"]} for parent in parents]
 

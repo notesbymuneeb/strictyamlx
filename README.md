@@ -92,7 +92,7 @@ Constraint callbacks can use:
 - `constraint(raw, ctrl, validated, parents=None)` — parent-aware
 
 When `parents` is provided to constraints, each item is a dictionary with:
-- `raw`: ancestor raw document
+- `raw`: ancestor raw node (local to that ancestor `DMap`)
 - `ctrl`: ancestor control projection
 - `val`: ancestor validated value
 
@@ -154,6 +154,8 @@ schema = DMap(
 For `when`, each `parents` item contains:
 - `raw`
 - `ctrl`
+
+`raw` passed to `when`/constraints is the current `DMap` node, not the whole YAML document.
 
 #### Parent context in nested constraints
 Nested constraints can also read ancestor validated values:

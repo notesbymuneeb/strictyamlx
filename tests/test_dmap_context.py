@@ -1,5 +1,5 @@
 from strictyamlx import DMap, Control, Case
-from strictyaml import Map, Str, Int, load
+from strictyaml import Map, Str, Int, Seq, load
 import pytest
 
 def test_nested_dmap_context_with_parent():
@@ -302,4 +302,45 @@ def test_control_nested_dmap_deep_child_gets_parent_raw_and_partial_ctrl():
         }
     )
     assert serialized["meta"]["selector"] == "inner"
+
+
+def test_when_raw_is_local_node_in_sequence_items():
+    schema = Map(
+        {
+            "constraints": Map(
+                {
+                    "hard": Seq(
+                        DMap(
+                            control=Control(Map({"name": Str(), "when": Str()})),
+                            blocks=[
+                                Case(
+                                    when=lambda raw, ctrl: "forbid" in raw,
+                                    schema=Map({"forbid": Str()}),
+                                ),
+                                Case(
+                                    when=lambda raw, ctrl: "require" in raw,
+                                    schema=Map({"require": Str()}),
+                                ),
+                            ],
+                        )
+                    )
+                }
+            )
+        }
+    )
+
+    yaml_data = """
+    constraints:
+      hard:
+        - name: test
+          when: test
+          forbid: test
+        - name: test
+          when: test
+          require: test
+    """
+
+    parsed = load(yaml_data, schema)
+    assert parsed["constraints"]["hard"][0]["forbid"] == "test"
+    assert parsed["constraints"]["hard"][1]["require"] == "test"
 
