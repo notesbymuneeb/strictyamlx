@@ -28,7 +28,12 @@ class ValidatorBuilder:
 
         for key, val in control_validator._validator.items():
             val_unpacked = unpack(val)
-            if isinstance(val_unpacked, MapValidator):
+            is_nested_mapping_with_key_schema = (
+                isinstance(val_unpacked, MapValidator)
+                and hasattr(val_unpacked, "_validator")
+                and isinstance(val_unpacked._validator, dict)
+            )
+            if is_nested_mapping_with_key_schema:
                 if key not in case_validator._validator:
                     case_validator._validator[key] = Map({})
                     
