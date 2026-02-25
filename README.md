@@ -189,6 +189,30 @@ schema = DMap(
 )
 ```
 
+### KeyedChoiceMap
+`KeyedChoiceMap` validates a mapping where a bounded number of keys from a predefined set may be present.
+
+```python
+from strictyamlx import KeyedChoiceMap, Str, Bool, Int, Float, Seq, Map
+
+predicate_value = KeyedChoiceMap(
+    choices=[
+        ("eq", Str() | Bool()),
+        ("in", Seq(Str())),
+        ("not_in", Seq(Str())),
+        ("gt", Int() | Float()),
+        ("gte", Int() | Float()),
+        ("lt", Int() | Float()),
+        ("lte", Int() | Float()),
+        ("range", Map({"min": Int() | Float(), "max": Int() | Float()})),
+    ],
+    minimum_keys=1,  # default
+    maximum_keys=1,  # default
+)
+```
+
+`minimum_keys`/`maximum_keys` count only the declared choice keys.
+
 ### Overlay Blocks
 `Overlay` blocks allow you to conditionally apply schema fragments on top of your base `Case` schema. Unlike `Case` blocks (where only one can match), multiple `Overlay` blocks can be active at the same time.
 

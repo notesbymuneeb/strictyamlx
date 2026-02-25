@@ -30,8 +30,7 @@ class ValidatorBuilder:
             val_unpacked = unpack(val)
             is_nested_mapping_with_key_schema = (
                 isinstance(val_unpacked, MapValidator)
-                and hasattr(val_unpacked, "_validator")
-                and isinstance(val_unpacked._validator, dict)
+                and hasattr(val_unpacked, "_validator_dict")
             )
             if is_nested_mapping_with_key_schema:
                 if key not in case_validator._validator:
@@ -56,6 +55,20 @@ class ValidatorBuilder:
                 new_dict[key] = self.rebuild_validator_recursive(val_unpacked)
             else:
                 new_dict[key] = val_unpacked
+
+        from .keyed_choice_map import KeyedChoiceMap
+        if isinstance(validator, KeyedChoiceMap):
+            choice_keys = list(validator.choice_keys)
+            choices = [(k, new_dict[k]) for k in choice_keys]
+            rebuilt = KeyedChoiceMap(
+                choices=choices,
+                minimum_keys=validator.minimum_keys,
+                maximum_keys=validator.maximum_keys,
+            )
+            for k, v in new_dict.items():
+                if k not in rebuilt._validator:
+                    rebuilt._validator[k] = v
+            return rebuilt
 
         if isinstance(validator, MapCombined):
             return MapCombined(new_dict, validator.key_validator, getattr(validator, '_value_validator', None))
