@@ -12,6 +12,7 @@ from strictyamlx import (
     KeyedChoiceMap,
     Map,
     MapPattern,
+    Optional,
     Seq,
     Str,
     as_document,
@@ -163,3 +164,51 @@ payload: 1
     rendered = as_document({"meta": {"eq": "hello"}, "payload": 1}, schema).as_yaml()
     assert "meta:" in rendered
     assert "eq: hello" in rendered
+
+
+def test_keyed_choice_map_with_optional_control_keys_in_dmap():
+    schema = Map(
+        {
+            "constraints": Map(
+                {
+                    "hard": Seq(
+                        DMap(
+                            control=Control(
+                                Map(
+                                    {
+                                        Optional("name"): Str(),
+                                    }
+                                )
+                            ),
+                            blocks=[
+                                Case(
+                                    when=True,
+                                    schema=KeyedChoiceMap(
+                                        choices=[
+                                            ("forbid", Map({"eq": Str()})),
+                                            ("require", Map({"eq": Str()})),
+                                        ],
+                                        minimum_keys=1,
+                                        maximum_keys=1,
+                                    ),
+                                )
+                            ],
+                        )
+                    )
+                }
+            )
+        }
+    )
+
+    doc = load(
+        """
+constraints:
+  hard:
+    - name: No rebase intents
+      require:
+        eq: x
+""",
+        schema,
+    )
+    assert doc.data["constraints"]["hard"][0]["name"] == "No rebase intents"
+    assert doc.data["constraints"]["hard"][0]["require"]["eq"] == "x"

@@ -26,21 +26,32 @@ class ValidatorBuilder:
         if not hasattr(case_validator, '_validator') or not isinstance(case_validator._validator, dict):
             return
 
+        def normalize_key(key):
+            return key.key if hasattr(key, "key") else key
+
         for key, val in control_validator._validator.items():
+            normalized_key = normalize_key(key)
+            case_key_lookup = {
+                normalize_key(case_key): case_key
+                for case_key in case_validator._validator.keys()
+            }
+            case_key = case_key_lookup.get(normalized_key)
+
             val_unpacked = unpack(val)
             is_nested_mapping_with_key_schema = (
                 isinstance(val_unpacked, MapValidator)
                 and hasattr(val_unpacked, "_validator_dict")
             )
             if is_nested_mapping_with_key_schema:
-                if key not in case_validator._validator:
-                    case_validator._validator[key] = Map({})
+                if case_key is None:
+                    case_key = key
+                    case_validator._validator[case_key] = Map({})
                     
-                target = ensure_validator_dict(case_validator._validator[key])
-                case_validator._validator[key] = target
+                target = ensure_validator_dict(case_validator._validator[case_key])
+                case_validator._validator[case_key] = target
                 self.merge_recursive(val, target)
             else:
-                if key not in case_validator._validator:
+                if case_key is None:
                     case_validator._validator[key] = val
 
     def rebuild_validator_recursive(self, validator):

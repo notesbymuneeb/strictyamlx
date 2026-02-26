@@ -65,10 +65,19 @@ class KeyedChoiceMap(MapValidator):
 
     @property
     def choice_keys(self) -> tuple[str, ...]:
-        return tuple[str, ...](self._choice_keys)
+        return tuple(self._choice_keys)
 
     def _choice_key_count(self, keys: Iterable[str]) -> int:
         return sum(1 for k in keys if k in self._choice_key_set)
+
+    def _resolve_validator(self, strict_key: str):
+        if strict_key in self._validator:
+            return self._validator[strict_key]
+        for key, validator in self._validator.items():
+            normalized_key = key.key if hasattr(key, "key") else key
+            if normalized_key == strict_key:
+                return validator
+        return None
 
     def validate(self, chunk):
         items = chunk.expect_mapping()
@@ -80,13 +89,14 @@ class KeyedChoiceMap(MapValidator):
             key_chunk.process(yaml_key)
             strict_key = yaml_key.scalar
 
-            if strict_key not in self._validator:
+            value_validator = self._resolve_validator(strict_key)
+            if value_validator is None:
                 key_chunk.expecting_but_found(
                     "while parsing a mapping",
                     "unexpected key not in schema '{0}'".format(str(strict_key)),
                 )
 
-            value_chunk.process(self._validator[strict_key](value_chunk))
+            value_chunk.process(value_validator(value_chunk))
             chunk.add_key_association(key_chunk.contents, yaml_key.data)
             present_keys.append(strict_key)
 
@@ -113,9 +123,9 @@ class KeyedChoiceMap(MapValidator):
     def to_yaml(self, data):
         self._should_be_mapping(data)
 
-        present_keys = list[Any](data.keys())
+        present_keys = list(data.keys())
         for key in present_keys:
-            if key not in self._validator:
+            if self._resolve_validator(key) is None:
                 raise YAMLSerializationError(
                     "Unexpected key not in schema '{0}'".format(str(key))
                 )
@@ -140,7 +150,7 @@ class KeyedChoiceMap(MapValidator):
 
         return CommentedMap(
             [
-                (key, self._validator[key].to_yaml(value))
+                (key, self._resolve_validator(key).to_yaml(value))
                 for key, value in data.items()
             ]
         )

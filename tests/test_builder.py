@@ -1,6 +1,6 @@
 import pytest
 
-from strictyamlx import Int, Map, Str, ValidatorBuilder
+from strictyamlx import Int, KeyedChoiceMap, Map, Optional, Seq, Str, ValidatorBuilder
 
 def test_builder_simple_merge():
     ctrl = Map({"type": Str()})
@@ -96,3 +96,12 @@ def test_builder_empty_control():
     builder = ValidatorBuilder(ctrl, case)
     final = builder.validator
     assert "value" in final._validator
+
+
+def test_builder_preserves_optional_control_key():
+    ctrl = Map({Optional("name"): Str()})
+    case = KeyedChoiceMap(choices=[("forbid", Seq(Str()))], minimum_keys=1, maximum_keys=1)
+    builder = ValidatorBuilder(ctrl, case)
+    final = builder.validator
+    optional_keys = [k for k in final._validator.keys() if hasattr(k, "key")]
+    assert any(getattr(k, "key", None) == "name" for k in optional_keys)
