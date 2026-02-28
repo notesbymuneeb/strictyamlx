@@ -1,3 +1,4 @@
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/strictyamlx?period=monthly&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=pypi+downloads%2Fmonth)](https://pepy.tech/projects/strictyamlx)
 # strictyamlx
 An extension of StrictYAML that adds more expressive schema tools for validation.
 
