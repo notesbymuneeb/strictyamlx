@@ -1,4 +1,11 @@
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/strictyamlx?period=monthly&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=pypi+downloads%2Fmonth)](https://pepy.tech/projects/strictyamlx)
+[![codecov](https://codecov.io/gh/notesbymuneeb/strictyamlx/branch/main/graph/badge.svg)](https://codecov.io/gh/notesbymuneeb/strictyamlx)
+[![Tests](https://github.com/notesbymuneeb/strictyamlx/actions/workflows/testsuite.yaml/badge.svg)](https://github.com/notesbymuneeb/strictyamlx/actions/workflows/testsuite.yaml)
+[![Python versions](https://img.shields.io/pypi/pyversions/strictyamlx)](https://pypi.org/project/strictyamlx/)
+[![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-blue)](https://github.com/notesbymuneeb/strictyamlx/actions/workflows/testsuite.yaml)
+[![Implementations](https://img.shields.io/badge/implementations-CPython%20%7C%20PyPy-blue)](https://github.com/notesbymuneeb/strictyamlx/actions/workflows/testsuite.yaml)
+[![Development Status](https://img.shields.io/badge/status-Beta-green)](https://pypi.org/project/strictyamlx/)
+
 # strictyamlx
 An extension of StrictYAML that adds more expressive schema tools for validation.
 

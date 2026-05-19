@@ -1,0 +1,116 @@
+name: "Tests"
+
+on:
+  push:
+    branches:
+      - main
+      - version-tests
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: 1
+  FORCE_COLOR: 1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.ref_type }}-
+    ${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: "${{ matrix.python-version }} on ${{ matrix.platform }}"
+    runs-on: "${{ matrix.platform }}"
+    if: "!contains(github.ref, '-notests')"
+    strategy:
+      matrix:
+        platform:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        python-version:
+          # https://github.com/actions/python-versions/blob/main/versions-manifest.json
+          - "3.10"
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
+          - "pypy-3.10"
+        exclude:
+          # https://github.com/pypy/pypy/issues/4958
+          - platform: windows-latest
+            python-version: "pypy-3.10"
+      fail-fast: false
+
+    steps:
+      - name: "Check out the repo"
+        uses: actions/checkout@v4.2.2
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "${{ matrix.python-version }}"
+          allow-prereleases: true
+
+      - name: "Show environment"
+        run: |
+          set -xe
+          python -VV
+          python -m site
+
+      - name: "Install tox"
+        run: |
+          set -xe
+          python -m pip install tox
+
+      - name: "Resolve tox env"
+        id: toxenv
+        run: |
+          set -xe
+
+          case "${{ matrix.platform }}" in
+            ubuntu-latest) platform="linux" ;;
+            macos-latest) platform="macos" ;;
+            windows-latest) platform="windows" ;;
+            *)
+              echo "Unsupported platform: ${{ matrix.platform }}"
+              exit 1
+              ;;
+          esac
+
+          py_version="${{ matrix.python-version }}"
+          if [[ "$py_version" == pypy-* ]]; then
+            py_factor="pypy${py_version#pypy-}"
+          else
+            py_factor="py${py_version}"
+          fi
+          py_factor="${py_factor//./}"
+
+          echo "env_name=${py_factor}-${platform}" >> "$GITHUB_OUTPUT"
+
+      - name: "Test with tox"
+        run: tox -vv -c tox-test.ini -e "${{ steps.toxenv.outputs.env_name }}"
+
+      - name: "Retry ${{ matrix.python-version }} ${{ matrix.platform }}"
+        if: failure()
+        run: tox -vv -c tox-test.ini -e "${{ steps.toxenv.outputs.env_name }}" && exit 1
+
+  success:
+    name: Tests successful
+    if: "!contains(github.ref, '-notests')"
+    needs:
+      - tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@223e4bb7a751b91f43eda76992bcfbf23b8b0302
+        with:
+          jobs: ${{ toJSON(needs) }}
