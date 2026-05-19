@@ -72,18 +72,39 @@ jobs:
       - name: "Install tox"
         run: |
           set -xe
-          python -m pip install tox tox-gh
+          python -m pip install tox
+
+      - name: "Resolve tox env"
+        id: toxenv
+        run: |
+          set -xe
+
+          case "${{ matrix.platform }}" in
+            ubuntu-latest) platform="linux" ;;
+            macos-latest) platform="macos" ;;
+            windows-latest) platform="windows" ;;
+            *)
+              echo "Unsupported platform: ${{ matrix.platform }}"
+              exit 1
+              ;;
+          esac
+
+          py_version="${{ matrix.python-version }}"
+          if [[ "$py_version" == pypy-* ]]; then
+            py_factor="pypy${py_version#pypy-}"
+          else
+            py_factor="py${py_version}"
+          fi
+          py_factor="${py_factor//./}"
+
+          echo "env_name=${py_factor}-${platform}" >> "$GITHUB_OUTPUT"
 
       - name: "Test with tox"
-        run: tox -vv -c tox-test.ini
-        env:
-          PLATFORM: ${{ matrix.platform }}
+        run: tox -vv -c tox-test.ini -e "${{ steps.toxenv.outputs.env_name }}"
 
       - name: "Retry ${{ matrix.python-version }} ${{ matrix.platform }}"
         if: failure()
-        run: tox -vv -c tox-test.ini && exit 1
-        env:
-          PLATFORM: ${{ matrix.platform }}
+        run: tox -vv -c tox-test.ini -e "${{ steps.toxenv.outputs.env_name }}" && exit 1
 
   success:
     name: Tests successful
