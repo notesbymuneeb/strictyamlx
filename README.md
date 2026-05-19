@@ -75,7 +75,9 @@ assert doc.data == {"meta": {"type": "number"}, "value": 42}
 ```
 
 #### Constraints
-You can append constraints to `Case` blocks or globally on the `DMap`. Constraints are callables that validate the incoming data.
+You can append constraints to `Case` blocks, `Overlay` blocks, or globally on the `DMap`. Constraints are callables that validate the incoming data. **`raw` and the validated value refer to the current (local) DMap node only**, not the whole YAML document.
+
+**Constraints on a Case** — validate the merged control + case data for that node:
 
 ```python
 Case(
@@ -88,7 +90,25 @@ Case(
 )
 ```
 
-Constraint callbacks can use:
+**Constraints on an Overlay** — validate the node when that overlay is active (e.g. require `cert_file` when TLS is enabled):
+
+```python
+Overlay(
+    when=lambda raw, ctrl: "tls" in raw,
+    schema=Map({
+        "tls": Map({
+            "enabled": Bool(),
+            Optional("cert_file"): Str(),
+            Optional("key_file"): Str(),
+        })
+    }),
+    constraints=[
+        lambda raw, ctrl, val: not val.get("tls", {}).get("enabled") or val.get("tls", {}).get("cert_file"),
+    ]
+)
+```
+
+Constraint callbacks receive **local** data: `raw` is the current node’s raw contents, and `validated` is the validated data for that node only. Signatures:
 - `constraint(raw, ctrl, validated)` — no parent context
 - `constraint(raw, ctrl, validated, parents=None)` — parent-aware
 
