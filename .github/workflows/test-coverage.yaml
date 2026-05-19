@@ -1,0 +1,72 @@
+name: "Codecov"
+
+on:
+  push:
+    branches:
+      - main
+      - version-tests
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: 1
+  FORCE_COLOR: 1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.ref_type }}-
+    ${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  codecov:
+    name: "${{ matrix.python-version }} on ${{ matrix.os }}"
+    runs-on: "${{ matrix.os }}-latest"
+    if: "!contains(github.ref, '-notests')"
+    strategy:
+      matrix:
+        os:
+          - ubuntu
+        python-version:
+          - "3.10"
+      fail-fast: false
+
+    steps:
+      - name: "Check out the repo"
+        uses: "actions/checkout@v4.2.2"
+
+      - name: "Set up Python ${{ matrix.python-version }}"
+        uses: "actions/setup-python@v5.6.0"
+        with:
+          python-version: "${{ matrix.python-version }}"
+          allow-prereleases: true
+
+      - name: "Install tox"
+        run: |
+          set -xe
+          python -m pip install tox
+
+      - name: "Run coverage"
+        run: |
+          set -xe
+          tox -c tox-test.ini -e coverage
+
+      - name: "Upload to Codecov"
+        uses: codecov/codecov-action@v5.4.3
+        with:
+          name: pytest-py3.10
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: notesbymuneeb/strictyamlx
+          os: linux
+          flags: unittests
+          files: ./coverage.xml
+          env_vars: OS,PYTHON
+          fail_ci_if_error: true
+          verbose: true
