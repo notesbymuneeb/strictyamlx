@@ -325,6 +325,87 @@ doc = load(yaml_advanced_tls, schema)
 assert doc.data["tls"]["enabled"] is True
 ```
 
+#### Overlay.choice
+
+`strictyaml.compound.validators.OrValidator` answers the question, does this value runtime validate against Validator A or B.
+
+`Overlay.choice` answers the question, is either key A or B (or ... n) provided. Provide no or multiple items with key(s) from KeyedChoiceMap choices, validation fails. Non-choice(s) are ignored!
+
+```python
+import textwrap
+from typing import Any, cast
+
+from strictyamlx import (
+    Case,
+    Control,
+    DMap,
+    KeyedChoiceMap,
+    Map,
+    Optional,
+    Overlay,
+    Str,
+    load,
+)
+
+ctrl_default = Control(Map({}))
+case_default = Case(
+    when=True,
+    schema=Map({}),
+)
+
+ChoiceSchema = KeyedChoiceMap(
+    choices=[
+        ("id_", Str()),
+        ("xpath", Str()),
+    ],
+)
+
+# No Control. In same Map, other items
+str_yaml = textwrap.dedent("""\
+    xpath: '//input[@id=''username'']'
+    type_: div
+    value: mylogin
+""")
+
+PageElementValidator = DMap(
+    # no-op: no keys required, no routing
+    control=ctrl_default,
+    blocks=[
+        # Catch-all base (required by DMap)
+        case_default,
+        # Overlay 0: at least one of id_ / xpath
+        Overlay.choice(ChoiceSchema),
+        # Overlay 1: optional extras
+        Overlay(
+            when=True,
+            schema=Map({
+                Optional("type_"): Str(),
+                Optional("value"): Str(),
+            }),
+        ),
+    ],
+)
+yaml_obj = load(str_yaml, schema=PageElementValidator)
+d_actual = cast("dict[str, Any]", yaml_obj.data)
+d_actual
+```
+
+{'type_': 'div', 'value': 'mylogin', 'xpath': "//input[@id='username']"}
+
+**What happened?**
+
+Purposefully declined to use `DMap` features: `Control` and `Case`. `Case` appears only because it's a `DMap` requirement. The example is focused on the two `Overlay`.
+
+- Overlay 0 -- `Overlay` expects a `Map` instance. `Overlay.choice` expects a `KeyedChoiceMap` instance. Intuitively, `KeyedChoiceMap` deals with *key choices*. This `KeyedChoiceMap` had to choose between the choices: "id_" or "xpath"; others keys were ignored.
+
+- Overlay 1 -- Dealt with "type_" and "value" whichever are present added to the output.
+
+The `DMap` rules apply to params: `when` and `constraints`. `constraints` most likely are unnecessary. In "Overlay 0" the defaults for `when` and `constraints` were silently applied.
+
+Look through the example again, it's mostly boilerplate. Could go away with sane defaults with preferrably a `DMap` subclass and if not a factory.
+
+Hopefully will see the UX become `DMap(blocks=blocks)` with blocks being the two `Overlay`, without `Case` or `Control` (unless needed by other `Overlay`).
+
 ### ForwardRef
 `ForwardRef` defines recursive or mutually dependent schemas, letting you use a schema component before it is fully defined.
 

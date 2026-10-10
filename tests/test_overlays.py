@@ -1,5 +1,15 @@
+import textwrap
+from contextlib import nullcontext as does_not_raise
+from typing import (
+    TYPE_CHECKING,
+    cast,
+)
+
 import pytest
-from strictyaml.exceptions import YAMLSerializationError, YAMLValidationError
+from strictyaml.exceptions import (
+    YAMLSerializationError,
+    YAMLValidationError,
+)
 
 from strictyamlx import (
     Bool,
@@ -7,6 +17,7 @@ from strictyamlx import (
     Control,
     DMap,
     Enum,
+    KeyedChoiceMap,
     Int,
     Map,
     Optional,
@@ -16,6 +27,31 @@ from strictyamlx import (
     as_document,
     load,
 )
+
+if TYPE_CHECKING:
+    import sys
+
+    from typing import (
+        Any,
+        Union,
+    )
+
+    PY310 = sys.version_info[:2] >= (3, 10)
+
+    if PY310:
+        from types import NoneType  # type: ignore[attr-defined]
+    else:
+        NoneType = type(None)
+
+    try:
+        from _pytest.python_api import RaisesContext  # noqa: F401
+    except (ModuleNotFoundError, ImportError):
+        # docs say from 8.4+, but actually 8.3.5+
+        from _pytest.raises import RaisesExc as RaisesContext  # type: ignore[no-redef, import-not-found]  # noqa: F401  # fmt: skip
+
+    DOES_NOT_OR_DOES: TypeAlias = Union[
+        does_not_raise[NoneType], RaisesContext[BaseException]
+    ]
 
 
 def test_dmap_overlays_with_case_routing():
@@ -278,3 +314,156 @@ def test_dmap_to_yaml_raises_on_multiple_true_cases():
 
     with pytest.raises(YAMLSerializationError, match="Multiple DMap cases"):
         as_document({"kind": "x"}, schema)
+
+
+@pytest.mark.parametrize(
+    "kls, when, constraints, expectation",
+    (
+        pytest.param(
+            does_not_raise(),
+            True,
+            [],
+            pytest.raises(TypeError),
+            id="expecting-KeyedChoiceMap",
+        ),
+        pytest.param(
+            KeyedChoiceMap(
+                choices=[
+                    ("id_", Str()),
+                    ("xpath", Str()),
+                ],
+            ),
+            False,
+            [],
+            pytest.raises(TypeError),
+            id="when-not-bool-literal-true-ok",
+        ),
+        pytest.param(
+            KeyedChoiceMap(
+                choices=[
+                    ("id_", Str()),
+                    ("xpath", Str()),
+                ],
+            ),
+            1.2,
+            [],
+            pytest.raises(TypeError),
+            id="when-unsupported-type",
+        ),
+        pytest.param(
+            KeyedChoiceMap(
+                choices=[
+                    ("id_", Str()),
+                    ("xpath", Str()),
+                ],
+            ),
+            True,
+            1.2,
+            pytest.raises(TypeError),
+            id="constraints-not-list",
+        ),
+    ),
+)
+def test_dmap_overlay_choice_exception(
+    kls: type,
+    when: "Any",
+    constraints: "list[Any]",
+    expectation: "DOES_NOT_OR_DOES",
+) -> None:
+    with expectation:
+        Overlay.choice(kls, when=when, constraints=constraints)
+
+
+@pytest.mark.parametrize(
+    "str_yaml, expectation, d_expected",
+    (
+        pytest.param(
+            textwrap.dedent("""\
+                id_: username
+                type_: div
+                value: mylogin
+            """),
+            does_not_raise(),
+            {'id_': 'username', 'type_': 'div', 'value': 'mylogin'},
+            id="with-id_",
+        ),
+        pytest.param(
+            # YAML single quoted str, inner single quotes are doubled
+            textwrap.dedent("""\
+                xpath: '//input[@id=''username'']'
+                type_: div
+                value: mylogin
+            """),
+            does_not_raise(),
+            {'type_': 'div', 'value': 'mylogin', 'xpath': "//input[@id='username']"},
+            id="with-xpath",
+        ),
+        pytest.param(
+            # YAML single quoted str, inner single quotes are doubled
+            textwrap.dedent("""\
+                id_: username
+                xpath: '//input[@id=''username'']'
+                type_: div
+                value: mylogin
+            """),
+            pytest.raises(YAMLValidationError),
+            {},
+            id="both",
+        ),
+        pytest.param(
+            textwrap.dedent("""\
+                type_: div
+                value: mylogin
+            """),
+            pytest.raises(YAMLValidationError),
+            {},
+            id="neither",
+        ),
+    ),
+)
+def test_dmap_overlay_choice_page_element(
+    str_yaml: str,
+    expectation: "DOES_NOT_OR_DOES",
+    d_expected: "dict[str, Any]",
+) -> None:
+    ChoiceSchema = KeyedChoiceMap(
+        choices=[
+            ("id_", Str()),
+            ("xpath", Str()),
+        ],
+    )
+
+    # This UX forces users to care about non-obvious Control UI. For less verbose
+    # UX, make this Control defaults or a sub-class DefaultControl(Control)
+    ctrl_default = Control(Map({}))
+    # For less verbose UX, make these Case defaults or a sub-class DefaultCase(Case)
+    case_default = Case(
+        when=True,
+        schema=Map({}),
+    )
+
+    # Good balance between UX (verbosity) and leaving DMap unmodified
+    PageElementValidator = DMap(
+        # no-op: no keys required, no routing
+        control=ctrl_default,
+        blocks=[
+            # Catch-all base (required by DMap)
+            case_default,
+            # Overlay 0: at least one of id_ / xpath
+            Overlay.choice(ChoiceSchema),
+            # Overlay 1: optional extras
+            Overlay(
+                when=True,
+                schema=Map({
+                    Optional("type_"): Str(),
+                    Optional("value"): Str(),
+                }),
+            ),
+        ],
+    )
+
+    with expectation:
+        yaml_ret = load(str_yaml, schema=PageElementValidator)
+    if isinstance(expectation, does_not_raise):
+        d_actual = cast("dict[str, Any]", yaml_ret.data)
+        assert d_actual == d_expected
