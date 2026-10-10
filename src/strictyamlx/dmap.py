@@ -33,10 +33,24 @@ class DMap(MapValidator):
         self.control = control
         self.blocks = blocks
         self.constraints = constraints
+        self._validator_cache = {}
 
     def __call__(self, chunk):
         self.validate(chunk)
         return self.validated
+
+    def _get_final_validator(self, control_validator, true_case_block, true_overlay_blocks):
+        cache_key = (true_case_block, tuple(true_overlay_blocks))
+        final_validator = self._validator_cache.get(cache_key)
+        if final_validator is None:
+            final_validator = ValidatorBuilder(
+                control_validator,
+                true_case_block._validator if true_case_block is not None else Map({}),
+                [overlay._validator for overlay in true_overlay_blocks],
+                self.control.source,
+            ).validator
+            self._validator_cache[cache_key] = final_validator
+        return final_validator
 
     @classmethod
     def get_stack(cls):
@@ -60,8 +74,20 @@ class DMap(MapValidator):
             "pending_constraints": [],
         }
 
+    @classmethod
+    def get_memo(cls):
+        if not hasattr(cls._local, "memo"):
+            cls._local.memo = {}
+        return cls._local.memo
+
+    _shape_cache = {}
+
     @staticmethod
     def _callback_shape(func):
+        try:
+            return DMap._shape_cache[func]
+        except (KeyError, TypeError):
+            pass
         try:
             sig = inspect.signature(func)
         except (TypeError, ValueError):
@@ -76,7 +102,12 @@ class DMap(MapValidator):
         has_var_positional = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
         has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params)
         has_named_parents = any(p.name == "parents" for p in params)
-        return positional_count, has_var_positional, has_var_keyword, has_named_parents
+        shape = (positional_count, has_var_positional, has_var_keyword, has_named_parents)
+        try:
+            DMap._shape_cache[func] = shape
+        except TypeError:
+            pass
+        return shape
 
     @staticmethod
     def compile_when(when):
@@ -117,6 +148,14 @@ class DMap(MapValidator):
     def validate(self, chunk):
         constraint_state = DMap.get_constraint_state()
         is_root_validation = constraint_state["active_validations"] == 0
+        memo = DMap.get_memo()
+        if is_root_validation:
+            memo.clear()
+        memo_key = (id(self), id(chunk.contents))
+        cached = memo.get(memo_key)
+        if cached is not None:
+            self.validated = cached
+            return
         constraint_state["active_validations"] += 1
         validation_succeeded = False
         stack = DMap.get_stack()
@@ -162,14 +201,12 @@ class DMap(MapValidator):
                         "unknown block type; expected Case or Overlay",
                     )
     
-            final_validator = ValidatorBuilder(
-                control_validator,
-                true_case_block._validator if true_case_block is not None else Map({}),
-                [overlay._validator for overlay in true_overlay_blocks],
-                self.control.source,
-            ).validator
-    
+            final_validator = self._get_final_validator(
+                control_validator, true_case_block, true_overlay_blocks
+            )
+
             self.validated = final_validator(chunk)
+            memo[memo_key] = self.validated
             val = self.validated.data
             frame["val"] = val
 
@@ -274,12 +311,9 @@ class DMap(MapValidator):
                 else:
                     raise YAMLSerializationError("Unknown DMap block type; expected Case or Overlay")
     
-            final_validator = ValidatorBuilder(
-                self.control._validator,
-                true_case_block._validator if true_case_block is not None else Map({}),
-                [overlay._validator for overlay in true_overlay_blocks],
-                self.control.source,
-            ).validator
+            final_validator = self._get_final_validator(
+                self.control._validator, true_case_block, true_overlay_blocks
+            )
             return final_validator.to_yaml(data)
         finally:
             stack.pop()

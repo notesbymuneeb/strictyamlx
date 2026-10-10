@@ -2,8 +2,67 @@ from strictyaml import Validator
 from strictyaml.validators import MapValidator
 from strictyaml.yamllocation import YAMLChunk
 from functools import reduce
+from copy import copy
 from strictyaml.ruamel.comments import CommentedMap, CommentedSeq
 from strictyaml.exceptions import YAMLSerializationError
+
+
+def _wrap_strict(pointer, node):
+    """Wrap ``node`` so that ``pointer.get(wrapped, strictdoc=True) == node``.
+
+    A ``YAMLChunk`` uses a single pointer to index both its ruamel and strict
+    documents. To validate a projected (filtered) subdocument while keeping the
+    original document for locations, we need a strict document whose structure
+    mirrors the pointer path down to ``node``.
+    """
+    result = node
+    for index_type, index in reversed(pointer._indices):
+        if index_type == "val":
+            result = CommentedMap({index[0]: result})
+        elif index_type == "index":
+            seq = CommentedSeq()
+            for _ in range(index):
+                seq.append(None)
+            seq.append(result)
+            result = seq
+        elif index_type == "key":
+            result = CommentedMap({index[0]: result})
+        else:  # pragma: no cover - textslice is not used for control nodes
+            result = CommentedMap({})
+    return result
+
+
+class _FilteredChunk(YAMLChunk):
+    """A mapping view that only exposes the keys present in a filtered
+    (projected) strict document, while resolving contents and source locations
+    against the *original* document.
+
+    This lets ``Control`` validate a subset of keys without copying the document,
+    so nested validators (including ``DMap``) receive the original sub-chunks and
+    keep correct line/column information.
+    """
+
+    def _select(self, pointer):
+        return _FilteredChunk(
+            self._ruamelparsed,
+            pointer=pointer,
+            label=self._label,
+            strictparsed=self._strictparsed,
+            key_association=copy(self._key_association),
+        )
+
+    def expect_mapping(self):
+        if not self.is_mapping():
+            self.expecting_but_found(
+                "when expecting a mapping", "found {0}".format(self.found())
+            )
+        result = []
+        for strict_key in self.strictparsed().keys():
+            regular_key = self._key_association.get(strict_key, strict_key)
+            result.append(
+                (self.key(regular_key, strict_key), self.val(strict_key))
+            )
+        return result
 
 
 class Control:
@@ -66,6 +125,18 @@ class Control:
                     
         return CommentedMap(projected_chunk)
 
+    def _control_pointer(self, chunk):
+        if not self.source or self.source == "":
+            return chunk.pointer
+        if isinstance(self.source, str):
+            regular = chunk.ruamelindex(self.source) if chunk.is_mapping() else self.source
+            return chunk.pointer.val(regular, self.source)
+        pointer = chunk.pointer
+        for key in self.source:
+            regular = chunk.ruamelindex(key) if chunk.is_mapping() else key
+            pointer = pointer.val(regular, key)
+        return pointer
+
     def validate(self, chunk):
         from .utils import unpack
 
@@ -88,9 +159,17 @@ class Control:
         )
         if is_mapping_validator:
             projected = self.projection(chunk_pointer, self._validator)
-            if not isinstance(chunk_pointer, CommentedMap):
-                projected = unpacked_validator.to_yaml(projected)
-            source_chunk = YAMLChunk(projected)
+            if isinstance(chunk_pointer, CommentedMap):
+                pointer = self._control_pointer(chunk)
+                source_chunk = _FilteredChunk(
+                    chunk._ruamelparsed,
+                    pointer=pointer,
+                    label=chunk.label,
+                    strictparsed=_wrap_strict(pointer, projected),
+                    key_association=copy(chunk.key_association),
+                )
+            else:
+                source_chunk = YAMLChunk(unpacked_validator.to_yaml(projected))
         else:
             source_chunk = YAMLChunk(chunk_pointer)
         self.validated = self._validator(source_chunk)
