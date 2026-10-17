@@ -80,6 +80,28 @@ class DMap(MapValidator):
             cls._local.memo = {}
         return cls._local.memo
 
+    @classmethod
+    def get_parents_usage(cls):
+        return getattr(cls._local, "parents_usage", 0)
+
+    @classmethod
+    def _mark_parents_usage(cls):
+        cls._local.parents_usage = cls.get_parents_usage() + 1
+
+    @staticmethod
+    def _uses_parents(func, positional_threshold):
+        if not callable(func):
+            return False
+        positional_count, has_var_positional, has_var_keyword, has_named_parents = (
+            DMap._callback_shape(func)
+        )
+        return (
+            positional_count >= positional_threshold
+            or has_var_positional
+            or has_named_parents
+            or has_var_keyword
+        )
+
     _shape_cache = {}
 
     @staticmethod
@@ -114,9 +136,15 @@ class DMap(MapValidator):
         if callable(when):
             positional_count, has_var_positional, has_var_keyword, has_named_parents = DMap._callback_shape(when)
             if positional_count >= 3 or has_var_positional:
-                return lambda raw, ctrl, parents=None: when(raw, ctrl, parents)
+                def compiled(raw, ctrl, parents=None):
+                    DMap._mark_parents_usage()
+                    return when(raw, ctrl, parents)
+                return compiled
             if has_named_parents or has_var_keyword:
-                return lambda raw, ctrl, parents=None: when(raw, ctrl, parents=parents)
+                def compiled(raw, ctrl, parents=None):
+                    DMap._mark_parents_usage()
+                    return when(raw, ctrl, parents=parents)
+                return compiled
             return lambda raw, ctrl, parents=None: when(raw, ctrl)
         return lambda raw, ctrl, parents=None: bool(when)
 
@@ -156,6 +184,7 @@ class DMap(MapValidator):
         if cached is not None:
             self.validated = cached
             return
+        parents_usage_start = DMap.get_parents_usage()
         constraint_state["active_validations"] += 1
         validation_succeeded = False
         stack = DMap.get_stack()
@@ -206,12 +235,13 @@ class DMap(MapValidator):
             )
 
             self.validated = final_validator(chunk)
-            memo[memo_key] = self.validated
             val = self.validated.data
             frame["val"] = val
 
             if self.constraints:
                 for constraint in self.constraints:
+                    if DMap._uses_parents(constraint, 4):
+                        DMap._mark_parents_usage()
                     constraint_state["pending_constraints"].append(
                         {
                             "constraint": constraint,
@@ -223,6 +253,8 @@ class DMap(MapValidator):
                     )
             if true_case_block and true_case_block.constraints:
                 for constraint in true_case_block.constraints:
+                    if DMap._uses_parents(constraint, 4):
+                        DMap._mark_parents_usage()
                     constraint_state["pending_constraints"].append(
                         {
                             "constraint": constraint,
@@ -235,6 +267,8 @@ class DMap(MapValidator):
             for overlay in true_overlay_blocks:
                 if overlay.constraints:
                     for constraint in overlay.constraints:
+                        if DMap._uses_parents(constraint, 4):
+                            DMap._mark_parents_usage()
                         constraint_state["pending_constraints"].append(
                             {
                                 "constraint": constraint,
@@ -244,6 +278,8 @@ class DMap(MapValidator):
                                 "depth": len(frame["parents"]),
                             }
                         )
+            if DMap.get_parents_usage() == parents_usage_start:
+                memo[memo_key] = self.validated
             validation_succeeded = True
         finally:
             stack.pop()

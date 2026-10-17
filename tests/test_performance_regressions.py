@@ -181,6 +181,48 @@ def test_nested_control_error_reports_original_line():
     assert "line 4" in str(excinfo.value)
 
 
+def test_memoization_respects_parent_context():
+    """A nested DMap whose ``when`` reads an ancestor's ctrl must not be
+    memoized across the control/case traversals, because the ancestor ctrl is
+    unresolved during the control traversal but resolved during the case one.
+    """
+    leaf = DMap(
+        control=Control(Map({})),
+        blocks=[
+            Case(
+                when=lambda raw, ctrl, parents=None: (
+                    parents is not None
+                    and parents[-2]["ctrl"] is not None
+                    and parents[-2]["ctrl"]["root_kind"] == "ok"
+                ),
+                schema=Map({"v": Int()}),
+            ),
+            Case(
+                when=lambda raw, ctrl, parents=None: (
+                    parents is not None
+                    and (
+                        parents[-2]["ctrl"] is None
+                        or parents[-2]["ctrl"]["root_kind"] != "ok"
+                    )
+                ),
+                schema=Map({"v": Str()}),
+            ),
+        ],
+    )
+    mid = DMap(
+        control=Control(Map({"mid_kind": Str()})),
+        blocks=[Case(when=True, schema=Map({"mid_kind": Str(), "leaf": leaf}))],
+    )
+    root = DMap(
+        control=Control(Map({"root_kind": Str(), "mid": mid})),
+        blocks=[Case(when=True, schema=Map({"root_kind": Str(), "mid": mid}))],
+    )
+
+    parsed = load("root_kind: ok\nmid:\n  mid_kind: m\n  leaf:\n    v: 1\n", root).data
+    assert parsed["mid"]["leaf"]["v"] == 1
+    assert isinstance(parsed["mid"]["leaf"]["v"], int)
+
+
 def test_control_missing_required_key_raises():
     schema = DMap(
         control=Control(Map({"needed": Str()})),
